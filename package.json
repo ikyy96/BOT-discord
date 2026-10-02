@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js && node --check yt-dlp-wrapper.js && node --check ecosystem.config.js",
+    "check": "node --check index.js && node --check ytdlp-search.js && node --check yt-dlp-wrapper.js && node --check ecosystem.config.js && node --check deploy/verify-token.js && node --check deploy/verify-search.js",
+    "verify-token": "node deploy/verify-token.js",
+    "verify-search": "node deploy/verify-search.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

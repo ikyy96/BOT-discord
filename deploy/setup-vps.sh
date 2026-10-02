@@ -117,11 +117,27 @@ install -d -o "$RUN_USER" -g "$RUN_USER" "$APP_DIR/node_modules/@distube/yt-dlp/
 # ---------------------------------------------------------------------
 # 6. Siapkan .env
 # ---------------------------------------------------------------------
+# Cek apakah sebuah file .env sudah punya DISCORD_TOKEN yang terisi &
+# bukan token contoh (placeholder).
+env_token_ok() {
+  [ -f "$1" ] || return 1
+  local tok
+  tok="$(sed -n 's/^DISCORD_TOKEN=//p' "$1" | head -n1)"
+  [ -n "${tok}" ] || return 1
+  case "${tok}" in
+    *isi_token_bot_discord_kamu_di_sini*) return 1 ;;
+  esac
+  return 0
+}
+
 if [ ! -f "${APP_DIR}/.env" ]; then
-  if [ -f "${SRC_DIR}/.env" ]; then
+  if env_token_ok "${SRC_DIR}/.env"; then
     log "Menyalin .env dari project..."
     cp "${SRC_DIR}/.env" "${APP_DIR}/.env"
   else
+    if [ -f "${SRC_DIR}/.env" ]; then
+      warn "Token di .env project kosong / masih placeholder -> akan menanyakan token baru."
+    fi
     cp "${APP_DIR}/.env.example" "${APP_DIR}/.env"
     printf '\n'
     read -rp "Masukkan DISCORD_TOKEN bot kamu: " TOKEN_INPUT
@@ -134,8 +150,8 @@ else
   log ".env sudah ada, tidak diubah."
 fi
 
-if ! grep -q '^DISCORD_TOKEN=.\+' "${APP_DIR}/.env"; then
-  warn "PERINGATAN: DISCORD_TOKEN di ${APP_DIR}/.env masih kosong!"
+if ! env_token_ok "${APP_DIR}/.env"; then
+  warn "PERINGATAN: DISCORD_TOKEN di ${APP_DIR}/.env masih kosong/placeholder!"
 fi
 
 # ---------------------------------------------------------------------
@@ -152,6 +168,25 @@ systemctl restart "${SERVICE_NAME}"
 
 sleep 3
 systemctl --no-pager --full status "${SERVICE_NAME}" || true
+
+# ---------------------------------------------------------------------
+# 8. Verifikasi token ke Discord (agar tahu bot benar-benar bisa online)
+# ---------------------------------------------------------------------
+log "Memverifikasi token bot ke Discord (maks 40 detik)..."
+if sudo -u "$RUN_USER" -H bash -lc "cd '${APP_DIR}' && timeout 40 node deploy/verify-token.js"; then
+  log "Token VALID — bot seharusnya sudah online. Cek di Discord atau: journalctl -u ${SERVICE_NAME} -f"
+else
+  warn "Verifikasi token GAGAL — bot TIDAK akan online sampai token diperbaiki."
+  warn " 1) Reset token : https://discord.com/developers/applications -> Bot -> Reset Token"
+  warn " 2) Update      : sudo nano ${APP_DIR}/.env   (isi DISCORD_TOKEN yang baru)"
+  warn " 3) Restart     : systemctl restart ${SERVICE_NAME}"
+  warn " Pesan error detail: journalctl -u ${SERVICE_NAME} -n 50 --no-pager"
+fi
+
+# Cek log service: kalau ada TokenInvalid, beri tahu jelas.
+if journalctl -u "${SERVICE_NAME}" --no-pager -n 100 2>/dev/null | grep -q 'TokenInvalid'; then
+  warn "Log service menunjukkan 'TokenInvalid' -> DISCORD_TOKEN di ${APP_DIR}/.env salah/kedaluwarsa."
+fi
 
 printf '\n\033[1;32m[setup] Selesai!\033[0m\n'
 printf '  Status  : systemctl status %s\n'  "$SERVICE_NAME"

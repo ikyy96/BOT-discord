@@ -3,6 +3,7 @@ const ffmpegPath = require('ffmpeg-static');
 const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
 const { DisTube } = require('distube');
 const { YtDlpPlugin } = require('@distube/yt-dlp');
+const { enableSearch } = require('./ytdlp-search');
 
 // ---------- Konfigurasi dari environment (.env) ----------
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -31,12 +32,19 @@ const client = new Client({
 // sesuai OS (yt-dlp.exe di Windows, yt-dlp di Linux/macOS) ke folder
 // node_modules/@distube/yt-dlp/bin saat pertama dijalankan, jadi tidak perlu
 // setting path manual. Pastikan folder tsb bisa ditulis oleh user service.
+//
+// PENTING: @distube/yt-dlp v2 belum punya `searchSong` DAN bertipe
+// "playable-extractor", sehingga pencarian kata kunci (`!play hindia`) gagal
+// dengan NO_RESULT. enableSearch() menambal keduanya (lihat ytdlp-search.js).
+// Pemutaran lewat link tetap seperti biasa.
+const ytDlpPlugin = enableSearch(new YtDlpPlugin({ update: true }));
+
 const distube = new DisTube(client, {
     ffmpeg: {
         path: FFMPEG
     },
     plugins: [
-        new YtDlpPlugin({ update: true })
+        ytDlpPlugin
     ]
 });
 
@@ -79,8 +87,19 @@ client.on('messageCreate', async (message) => {
                 member: message.member,
             });
         } catch (error) {
-            console.error(error);
-            message.channel.send('❌ Terjadi kesalahan saat memproses lagu. Silakan coba judul lain atau gunakan link YouTube berbeda.');
+            console.error('Gagal memproses lagu:', error);
+            const code = error && error.errorCode;
+            let pesan;
+            if (code === 'NO_RESULT') {
+                pesan = `❌ Tidak ada hasil untuk **${query}**. Coba kata kunci lain atau tempel link YouTube-nya langsung.`;
+            } else if (code === 'YTDLP_ERROR') {
+                pesan = '❌ yt-dlp gagal mengambil lagu ini (YouTube sering berubah). Coba lagi atau pakai link lain.';
+            } else if (code === 'NOT_SUPPORTED_URL') {
+                pesan = '❌ Link itu belum didukung. Pakai link YouTube atau kata kunci pencarian.';
+            } else {
+                pesan = '❌ Terjadi kesalahan saat memproses lagu. Silakan coba judul lain atau gunakan link YouTube berbeda.';
+            }
+            message.channel.send(pesan);
         }
     }
 
@@ -156,4 +175,27 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // Login ke Discord
-client.login(TOKEN);
+// Penting: kalau login gagal (mis. token invalid), tanpa .catch() error-nya hanya
+// muncul sebagai "unhandled rejection" dan proses tetap hidup -> systemd/PM2
+// melaporkan service "running" padahal bot sebenarnya TIDAK online.
+client.login(TOKEN).catch((err) => {
+    const code = err && err.code ? err.code : '';
+    console.error(`❌ Gagal login ke Discord: ${code ? code + ' - ' : ''}${err && err.message ? err.message : err}`);
+
+    if (code === 'TokenInvalid') {
+        console.error('   → Token di .env TIDAK VALID (sudah di-reset / salah copy / terpotong).');
+        console.error('   → Reset token: https://discord.com/developers/applications → Bot → Reset Token,');
+        console.error('     lalu update DISCORD_TOKEN di .env dan restart: systemctl restart ikyybot');
+        console.error('   → Cek token tanpa menjalankan bot: npm run verify-token');
+    } else if (/disallowed intents/i.test(String(err && err.message))) {
+        console.error('   → Aktifkan MESSAGE CONTENT INTENT di Discord Developer Portal → Bot → Privileged Gateway Intents.');
+    } else {
+        console.error('   → Cek koneksi internet server, lalu coba lagi.');
+    }
+
+    // Tutup client dulu lalu keluar (menghindari "Assertion failed" libuv di Windows).
+    // Keluar dengan kode error penting: systemd/PM2 jadi bisa melaporkan service gagal,
+    // dan alasannya terlihat jelas di `journalctl -u ikyybot`.
+    try { client.destroy(); } catch (e) { /* abaikan */ }
+    setTimeout(() => process.exit(1), 300);
+});

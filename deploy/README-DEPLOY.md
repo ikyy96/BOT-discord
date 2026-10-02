@@ -29,14 +29,26 @@ Script akan otomatis:
 - install **Node.js 22 LTS** + **ffmpeg**,
 - copy project ke `/opt/ikyybot`,
 - `npm ci` (dependency Linux),
-- menyiapkan `.env` (menanyakan token bila belum ada),
-- membuat systemd service `ikyybot` yang auto-start & auto-restart.
+- menyiapkan `.env` (menanyakan token bila belum ada / masih placeholder),
+- membuat systemd service `ikyybot` yang auto-start & auto-restart,
+- **memverifikasi token ke Discord** di akhir proses (memberi tahu kalau token salah).
 
 Cek status:
 ```bash
 systemctl status ikyybot
 journalctl -u ikyybot -f
 ```
+
+> ⚠️ **Penting:** installer hanya menyalin `.env` dari folder project kalau isinya bukan
+> placeholder. Kalau token di `.env` sudah **kedaluwarsa/di-reset** (formatnya benar tapi
+> ditolak Discord), installer akan melaporkan **verifikasi token GAGAL** walau service
+> berstatus `active`. Perbaiki langsung di VPS:
+> ```bash
+> sudo nano /opt/ikyybot/.env      # isi DISCORD_TOKEN yang baru
+> sudo systemctl restart ikyybot
+> journalctl -u ikyybot -f
+> ```
+> Cek token kapan saja tanpa menjalankan bot: `cd /opt/ikyybot && npm run verify-token`
 
 ---
 
@@ -132,6 +144,26 @@ docker compose up -d --build
 | `PREFIX`       | ➖    | `!`            | Prefix perintah chat |
 | `FFMPEG_PATH`  | ➖    | `ffmpeg-static`| Isi `/usr/bin/ffmpeg` untuk pakai ffmpeg sistem |
 | `NODE_ENV`     | ➖    | –              | Set `production` |
+| `YTDLP_SEARCH_PREFIX` | ➖ | `ytsearch1:` | Awalan pencarian yt-dlp untuk `!play <judul>` |
+
+### Cek token (paling sering jadi sebab bot offline)
+
+```bash
+npm run verify-token      # atau: node deploy/verify-token.js
+```
+
+Script ini memeriksa format token + login sungguhan ke Discord, **tanpa** menjalankan bot.
+Kalau muncul `TokenInvalid`, token harus di-reset di Developer Portal lalu diperbarui di `.env`.
+
+### Cek pencarian lagu (`!play <judul>`)
+
+```bash
+npm run verify-search                 # uji kata kunci "hindia"
+npm run verify-search -- "no doubt"   # uji kata kunci lain
+```
+
+Script ini menjalankan rantai cari → ambil link audio (persis yang dipakai bot), tanpa Discord.
+Kalau muncul `NO_RESULT` padahal `ytdlp-search.js` ada, berarti file itu tidak ikut ter-deploy.
 
 ---
 
@@ -140,6 +172,9 @@ docker compose up -d --build
 - **yt-dlp otomatis**: plugin `@distube/yt-dlp` v2 mengunduh sendiri binary yt-dlp
   sesuai OS ke `node_modules/@distube/yt-dlp/bin`. Pastikan VPS punya internet dan
   folder itu **bisa ditulis** oleh user service.
+- **Pencarian kata kunci**: `ytdlp-search.js` menambal kekurangan plugin
+  `@distube/yt-dlp` v2 (tidak punya `searchSong` & bertipe `playable-extractor`),
+  supaya `!play <judul>` bisa jalan — bukan hanya `!play <link>`.
 - **Update yt-dlp**: setiap restart bot akan mengambil yt-dlp versi terbaru —
   bagus untuk mengatasi perubahan YouTube. Cukup `systemctl restart ikyybot`.
 - **ffmpeg**: wajib ada. Pakai sistem (`apt install ffmpeg`) atau `ffmpeg-static`
@@ -167,6 +202,11 @@ sudo systemctl restart ikyybot
 
 | Gejala | Penyebab & Solusi |
 |--------|-------------------|
+| **Service `active` tapi bot tidak online** | Token ditolak Discord, bukan crash. Jalankan `npm run verify-token`. Kalau muncul `TokenInvalid`, reset token & update `.env`, lalu `systemctl restart ikyybot`. |
+| `DisTubeError [NO_RESULT]` saat `!play <judul>` | Sudah diperbaiki oleh `ytdlp-search.js`. Penyebabnya: `@distube/yt-dlp` v2 tidak punya `searchSong` **dan** bertipe `playable-extractor`, sedangkan DisTube hanya mencari via plugin bertipe `extractor`. Pastikan `ytdlp-search.js` ikut ter-deploy dan `index.js` memakai `enableSearch(...)`. Uji tanpa Discord: `npm run verify-search`. |
+| `!play <judul>` jalan tapi tidak ada suara | ffmpeg belum terpasang / `FFMPEG_PATH` salah, atau bot tidak punya izin `Speak` di voice channel. |
+| `TokenInvalid: An invalid token was provided` | Token di `.env` sudah di-**reset**/kedaluwarsa/salah copy. Reset di Developer Portal → **Bot → Reset Token**, update `DISCORD_TOKEN` di `.env`, lalu `systemctl restart ikyybot`. |
+| Token format terlihat benar (3 bagian) tapi tetap invalid | Token **lama** yang sudah di-reset. Format token lama & baru sama, jadi wajib pakai token terbaru dari portal. |
 | `DISCORD_TOKEN tidak ditemukan` | `.env` belum diisi / salah lokasi. Pastikan `EnvironmentFile` benar. |
 | Bot online tapi `!play` diam | **Message Content Intent** belum aktif di Developer Portal. |
 | `SIGILL` / error `@discordjs/opus` | Jangan pakai `@discordjs/opus`; project ini pakai `opusscript` (sudah aman). |
