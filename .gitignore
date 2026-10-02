@@ -1,0 +1,16 @@
+node_modules/
+.env
+
+# Log & runtime
+logs/
+*.log
+npm-debug.log*
+
+# Artefak player-script YouTube yang ikut terunduh saat streaming
+*-player-script.js
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

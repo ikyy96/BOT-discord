@@ -1,0 +1,13 @@
+services:
+  ikyybot:
+    build: .
+    image: ikyybot:latest
+    container_name: ikyybot
+    restart: unless-stopped
+    # init: true -> proses utama menangani sinyal (SIGTERM) dengan benar
+    init: true
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      FFMPEG_PATH: /usr/bin/ffmpeg

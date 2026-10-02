@@ -1,0 +1,31 @@
+[Unit]
+Description=IKYYBOT - Discord Music Bot
+Documentation=file://__APP_DIR__/deploy/README-DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__APP_DIR__/.env
+ExecStart=/usr/bin/env node __APP_DIR__/index.js
+
+# Otomatis hidup lagi kalau crash / VPS reboot
+Restart=always
+RestartSec=10
+TimeoutStopSec=15
+KillSignal=SIGTERM
+
+# Log masuk ke journald. Lihat dengan:  journalctl -u ikyybot -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ikyybot
+
+# Hardening ringan
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
