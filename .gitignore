@@ -9,6 +9,9 @@ npm-debug.log*
 # Artefak player-script YouTube yang ikut terunduh saat streaming
 *-player-script.js
 
+# Binary yt-dlp hasil salinan dari yt-dlp sistem
+.ytdlp/
+
 # OS / editor
 .DS_Store
 Thumbs.db

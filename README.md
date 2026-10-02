@@ -32,6 +32,7 @@ sudo bash deploy/setup-vps.sh
 |------|------------|
 | `index.js` | Kode utama bot |
 | `ytdlp-search.js` | Tambalan pencarian kata kunci `!play <judul>` untuk plugin `@distube/yt-dlp` v2 |
+| `ytdlp-setup.js` | Menyiapkan binary yt-dlp + JavaScript runtime (Node) untuk YouTube |
 | `.env` | Konfigurasi rahasia (token) — jangan di-commit |
 | `.env.example` | Template konfigurasi |
 | `Dockerfile`, `docker-compose.yml` | Deploy via Docker |
@@ -39,5 +40,6 @@ sudo bash deploy/setup-vps.sh
 | `deploy/setup-vps.sh` | Installer otomatis VPS |
 | `deploy/verify-token.js` | Cek token bot via `npm run verify-token` |
 | `deploy/verify-search.js` | Cek pencarian lagu via `npm run verify-search` |
+| `deploy/doctor.js` | Diagnosa yt-dlp/JS runtime/ffmpeg via `npm run doctor` |
 | `deploy/ikyybot.service` | Unit systemd |
 | `deploy/README-DEPLOY.md` | Dokumentasi deploy |

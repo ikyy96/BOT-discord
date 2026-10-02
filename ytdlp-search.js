@@ -19,11 +19,21 @@
 //
 // Catatan: memutar URL langsung (`!play <link>`) tetap jalan tanpa tambalan ini.
 // -----------------------------------------------------------------------------
+require('dotenv').config({ quiet: true });
+const { configureYtDlp, ytDlpFlags } = require('./ytdlp-setup');
+
+// Pastikan binary + JS runtime yt-dlp siap SEBELUM plugin @distube/yt-dlp
+// dimuat, karena plugin membaca env YTDLP_DIR/YTDLP_FILENAME saat di-require.
+configureYtDlp({ quiet: true });
+
 const { Song, DisTubeError } = require('distube');
 const { json: ytDlpJson } = require('@distube/yt-dlp');
 
 // Awalan pencarian yt-dlp. Bisa diubah lewat .env, contoh: YTDLP_SEARCH_PREFIX=ytsearch5:
 const SEARCH_PREFIX = process.env.YTDLP_SEARCH_PREFIX || 'ytsearch1:';
+
+// Format audio untuk streaming (best audio). Bisa diubah lewat env YTDLP_FORMAT.
+const STREAM_FORMAT = process.env.YTDLP_FORMAT || 'ba/ba*';
 
 // Argumen yt-dlp: hanya ambil metadata, tanpa mengunduh file.
 const SEARCH_FLAGS = {
@@ -33,6 +43,11 @@ const SEARCH_FLAGS = {
     skipDownload: true,
     simulate: true,
 };
+
+// Gabungan argumen dasar + argumen lingkungan (--js-runtimes, --cookies, dll).
+function metadataFlags(extra = {}) {
+    return { ...SEARCH_FLAGS, ...ytDlpFlags(), ...extra };
+}
 
 function pickThumbnail(entry) {
     if (entry.thumbnail) return entry.thumbnail;
@@ -74,14 +89,40 @@ function toSong(plugin, entry, options, query) {
 async function searchSong(plugin, query, options = {}) {
     let info;
     try {
-        info = await ytDlpJson(`${SEARCH_PREFIX}${query}`, SEARCH_FLAGS);
+        info = await ytDlpJson(`${SEARCH_PREFIX}${query}`, metadataFlags());
     } catch (err) {
         // DisTube akan mengubah error ini menjadi NO_RESULT, jadi log detailnya di sini.
-        console.error(`[ytdlp-search] yt-dlp gagal mencari "${query}":`, String(err.stderr || err.message || err).slice(0, 500));
+        console.error(`[ytdlp-search] yt-dlp gagal mencari "${query}":`, shortError(err));
         throw new DisTubeError('YTDLP_ERROR', `${err.stderr || err}`);
     }
     const entry = Array.isArray(info.entries) ? info.entries[0] : info;
     return toSong(plugin, entry, options, query);
+}
+
+// Ambil URL audio langsung dari yt-dlp (dipakai DisTube saat mulai memutar).
+// Diambil alih dari plugin agar memakai flag tambahan (--js-runtimes, cookies).
+async function getStreamURL(song) {
+    if (!song || !song.url) {
+        throw new DisTubeError('YTDLP_PLUGIN_INVALID_SONG', 'Cannot get stream url from invalid song.');
+    }
+    let info;
+    try {
+        info = await ytDlpJson(song.url, metadataFlags({ format: STREAM_FORMAT }));
+    } catch (err) {
+        console.error(`[ytdlp-search] gagal mengambil link audio "${song.url}":`, shortError(err));
+        throw new DisTubeError('YTDLP_ERROR', `${err.stderr || err}`);
+    }
+    if (Array.isArray(info.entries) || !info.url) {
+        throw new DisTubeError('YTDLP_ERROR', 'yt-dlp tidak mengembalikan URL audio (format tidak tersedia).');
+    }
+    return info.url;
+}
+
+// Ringkas pesan error yt-dlp supaya log tetap terbaca.
+function shortError(err) {
+    if (err && err.stderr) return String(err.stderr).trim().slice(0, 1000);
+    if (err && err.message) return String(err.message).slice(0, 1000);
+    return String(err).slice(0, 1000);
 }
 
 // Pasang method searchSong ke instance plugin (hanya kalau belum ada) dan
@@ -97,8 +138,10 @@ function enableSearch(plugin) {
     if (typeof plugin.searchSong !== 'function') {
         plugin.searchSong = (query, options) => searchSong(plugin, query, options);
     }
+    // Ambil alih pengambilan link audio agar ikut memakai --js-runtimes/cookies.
+    plugin.getStreamURL = getStreamURL;
     plugin.type = 'extractor';
     return plugin;
 }
 
-module.exports = { enableSearch, searchSong, SEARCH_PREFIX };
+module.exports = { enableSearch, searchSong, getStreamURL, shortError, SEARCH_PREFIX, STREAM_FORMAT };

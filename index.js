@@ -1,4 +1,9 @@
 require('dotenv').config();
+const { configureYtDlp, formatYtDlpStatus } = require('./ytdlp-setup');
+
+// Siapkan yt-dlp (binary + JS runtime) SEBELUM plugin @distube/yt-dlp dimuat.
+const ytDlpState = configureYtDlp();
+
 const ffmpegPath = require('ffmpeg-static');
 const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
 const { DisTube } = require('distube');
@@ -50,6 +55,7 @@ const distube = new DisTube(client, {
 
 client.once('clientReady', () => {
     console.log(`🤖 IKYYBOT Berhasil Online sebagai ${client.user.tag}!`);
+    for (const line of formatYtDlpStatus(ytDlpState)) console.log(`   ${line}`);
     client.user.setActivity(PREFIX + 'help', { type: ActivityType.Listening });
 });
 

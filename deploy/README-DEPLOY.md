@@ -145,6 +145,10 @@ docker compose up -d --build
 | `FFMPEG_PATH`  | ➖    | `ffmpeg-static`| Isi `/usr/bin/ffmpeg` untuk pakai ffmpeg sistem |
 | `NODE_ENV`     | ➖    | –              | Set `production` |
 | `YTDLP_SEARCH_PREFIX` | ➖ | `ytsearch1:` | Awalan pencarian yt-dlp untuk `!play <judul>` |
+| `YTDLP_JS_RUNTIME` | ➖ | `node`      | JavaScript runtime untuk YouTube (wajib sejak yt-dlp 2025.11.12) |
+| `YTDLP_COOKIES` | ➖   | –              | Path `cookies.txt` bila YouTube minta verifikasi ("not a bot") |
+| `YTDLP_EXTRACTOR_ARGS` | ➖ | –         | Argumen ekstraktor, mis. `youtube:player_client=web_safari` |
+| `YTDLP_FORMAT` | ➖    | `ba/ba*`       | Format audio untuk streaming |
 
 ### Cek token (paling sering jadi sebab bot offline)
 
@@ -160,10 +164,18 @@ Kalau muncul `TokenInvalid`, token harus di-reset di Developer Portal lalu diper
 ```bash
 npm run verify-search                 # uji kata kunci "hindia"
 npm run verify-search -- "no doubt"   # uji kata kunci lain
+npm run doctor                        # diagnosa lengkap (yt-dlp, JS runtime, ffmpeg)
 ```
 
-Script ini menjalankan rantai cari → ambil link audio (persis yang dipakai bot), tanpa Discord.
-Kalau muncul `NO_RESULT` padahal `ytdlp-search.js` ada, berarti file itu tidak ikut ter-deploy.
+`verify-search` menjalankan rantai cari → ambil link audio (persis yang dipakai bot), tanpa Discord.
+`doctor` membandingkan yt-dlp **tanpa vs dengan** JavaScript runtime dan menyimpulkan penyebabnya.
+
+> ⚠️ **JavaScript runtime = syarat wajib sekarang.** Sejak yt-dlp **2025.11.12**,
+> YouTube memerlukan runtime JS eksternal (Deno default; **Node** harus diaktifkan dengan
+> `--js-runtimes node`). Tanpa itu, bot bisa gagal saat `!play` (`YTDLP_ERROR`).
+> Bot ini menanganinya otomatis: `ytdlp-setup.js` menulis `~/.config/yt-dlp/config`
+> berisi `--js-runtimes node` (hanya kalau file itu belum ada) dan memakai Node yang
+> menjalankan bot. Matikan dengan `YTDLP_SKIP_USER_CONFIG=1` bila tidak diinginkan.
 
 ---
 
@@ -175,6 +187,16 @@ Kalau muncul `NO_RESULT` padahal `ytdlp-search.js` ada, berarti file itu tidak i
 - **Pencarian kata kunci**: `ytdlp-search.js` menambal kekurangan plugin
   `@distube/yt-dlp` v2 (tidak punya `searchSong` & bertipe `playable-extractor`),
   supaya `!play <judul>` bisa jalan — bukan hanya `!play <link>`.
+- **JavaScript runtime (wajib)**: sejak yt-dlp 2025.11.12 YouTube butuh runtime JS.
+  `ytdlp-setup.js` mengaktifkan **Node** (`--js-runtimes node`) dan menulis
+  `~/.config/yt-dlp/config` bila belum ada. Alternatif: install **Deno** (aktif default).
+- **yt-dlp sistem**: kalau binary bawaan plugin gagal diunduh dari GitHub (umum di VPS),
+  bot otomatis memakai `yt-dlp` sistem (`/usr/local/bin/yt-dlp`, `/usr/bin/yt-dlp`, ...)
+  dengan menyalinnya ke `./.ytdlp/`. Cara install:
+  `sudo apt install python3-pip && sudo pip3 install -U yt-dlp`
+- **Cookies YouTube**: kalau IP VPS ditandai bot ("Sign in to confirm you're not a bot"),
+  export `cookies.txt` dari browser yang sudah login, taruh di folder bot, lalu set
+  `YTDLP_COOKIES=/path/cookies.txt` di `.env`.
 - **Update yt-dlp**: setiap restart bot akan mengambil yt-dlp versi terbaru —
   bagus untuk mengatasi perubahan YouTube. Cukup `systemctl restart ikyybot`.
 - **ffmpeg**: wajib ada. Pakai sistem (`apt install ffmpeg`) atau `ffmpeg-static`
@@ -204,7 +226,12 @@ sudo systemctl restart ikyybot
 |--------|-------------------|
 | **Service `active` tapi bot tidak online** | Token ditolak Discord, bukan crash. Jalankan `npm run verify-token`. Kalau muncul `TokenInvalid`, reset token & update `.env`, lalu `systemctl restart ikyybot`. |
 | `DisTubeError [NO_RESULT]` saat `!play <judul>` | Sudah diperbaiki oleh `ytdlp-search.js`. Penyebabnya: `@distube/yt-dlp` v2 tidak punya `searchSong` **dan** bertipe `playable-extractor`, sedangkan DisTube hanya mencari via plugin bertipe `extractor`. Pastikan `ytdlp-search.js` ikut ter-deploy dan `index.js` memakai `enableSearch(...)`. Uji tanpa Discord: `npm run verify-search`. |
-| `!play <judul>` jalan tapi tidak ada suara | ffmpeg belum terpasang / `FFMPEG_PATH` salah, atau bot tidak punya izin `Speak` di voice channel. |
+| Pesan bot `❌ yt-dlp gagal mengambil lagu ini` (`YTDLP_ERROR`) | yt-dlp gagal di sisi YouTube/binary. Jalankan **`npm run doctor`** — hasilnya menyimpulkan penyebab (JS runtime / binary hilang / cookies / versi tua). Lihat juga stderr di `journalctl -u ikyybot -n 50`. |
+| `WARNING: No supported JavaScript runtime could be found` | YouTube butuh runtime JS (yt-dlp ≥ 2025.11.12). Pastikan `~/.config/yt-dlp/config` berisi `--js-runtimes node` (bot menulisnya otomatis) atau set `YTDLP_JS_RUNTIME=node` di `.env`. |
+| `Sign in to confirm you're not a bot` / 403 dari VPS | IP VPS ditandai bot oleh YouTube. Export `cookies.txt` dari browser yang login, lalu set `YTDLP_COOKIES=/path/cookies.txt` di `.env` dan restart service. |
+| `spawn ... ENOENT` / binary yt-dlp hilang | Plugin gagal unduh dari GitHub (diblokir/rate-limit). Bot akan pakai `yt-dlp` sistem kalau ada: `sudo apt install python3-pip && sudo pip3 install -U yt-dlp`. |
+| `!play <link>` jalan tetapi `!play <judul>` gagal | Biasanya JS runtime/cookies. Cek dengan `npm run doctor`, lalu ikuti kesimpulannya. |
+| `!play` jalan tapi tidak ada suara | ffmpeg belum terpasang / `FFMPEG_PATH` salah, atau bot tidak punya izin `Speak` di voice channel. |
 | `TokenInvalid: An invalid token was provided` | Token di `.env` sudah di-**reset**/kedaluwarsa/salah copy. Reset di Developer Portal → **Bot → Reset Token**, update `DISCORD_TOKEN` di `.env`, lalu `systemctl restart ikyybot`. |
 | Token format terlihat benar (3 bagian) tapi tetap invalid | Token **lama** yang sudah di-reset. Format token lama & baru sama, jadi wajib pakai token terbaru dari portal. |
 | `DISCORD_TOKEN tidak ditemukan` | `.env` belum diisi / salah lokasi. Pastikan `EnvironmentFile` benar. |

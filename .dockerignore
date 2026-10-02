@@ -5,5 +5,6 @@ node_modules
 logs
 *.log
 *-player-script.js
+.ytdlp
 .DS_Store
 Thumbs.db

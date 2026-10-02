@@ -114,6 +114,24 @@ sudo -u "$RUN_USER" -H bash -lc "cd '${APP_DIR}' && npm ci --omit=dev"
 # Folder bin yt-dlp harus bisa ditulis plugin saat runtime (auto-download binary)
 install -d -o "$RUN_USER" -g "$RUN_USER" "$APP_DIR/node_modules/@distube/yt-dlp/bin" 2>/dev/null || true
 
+# Ingatkan bila yt-dlp belum tersedia (unduhan dari GitHub sering diblokir di VPS).
+if [ ! -x "${APP_DIR}/node_modules/@distube/yt-dlp/bin/yt-dlp" ] && ! command -v yt-dlp >/dev/null 2>&1; then
+  warn "yt-dlp belum tersedia. Bila unduhan dari GitHub gagal, install manual:"
+  warn "  apt install -y python3-pip && pip3 install -U yt-dlp"
+fi
+
+# ---------------------------------------------------------------------
+# 5b. Aktifkan JavaScript runtime untuk YouTube (wajib sejak yt-dlp 2025.11.12)
+# ---------------------------------------------------------------------
+YTDLP_HOME="$(sudo -u "$RUN_USER" -H bash -lc 'echo $HOME' 2>/dev/null || true)"
+YTDLP_CONF_DIR="${YTDLP_HOME}/.config/yt-dlp"
+if [ -n "${YTDLP_HOME}" ] && [ ! -f "${YTDLP_CONF_DIR}/config" ]; then
+  log "Mengaktifkan JavaScript runtime Node untuk yt-dlp (${YTDLP_CONF_DIR}/config)..."
+  install -d -o "$RUN_USER" -g "$RUN_USER" "${YTDLP_CONF_DIR}"
+  printf -- '--js-runtimes node\n' > "${YTDLP_CONF_DIR}/config"
+  chown "$RUN_USER":"$RUN_USER" "${YTDLP_CONF_DIR}/config"
+fi
+
 # ---------------------------------------------------------------------
 # 6. Siapkan .env
 # ---------------------------------------------------------------------
@@ -186,6 +204,17 @@ fi
 # Cek log service: kalau ada TokenInvalid, beri tahu jelas.
 if journalctl -u "${SERVICE_NAME}" --no-pager -n 100 2>/dev/null | grep -q 'TokenInvalid'; then
   warn "Log service menunjukkan 'TokenInvalid' -> DISCORD_TOKEN di ${APP_DIR}/.env salah/kedaluwarsa."
+fi
+
+# ---------------------------------------------------------------------
+# 9. Verifikasi pencarian lagu (yt-dlp + JavaScript runtime)
+# ---------------------------------------------------------------------
+log "Menguji pencarian lagu (maks 120 detik)..."
+if sudo -u "$RUN_USER" -H bash -lc "cd '${APP_DIR}' && timeout 120 npm run verify-search"; then
+  log "Pencarian lagu OK - '!play <judul>' seharusnya sudah bisa dipakai."
+else
+  warn "Pencarian lagu GAGAL - jalankan diagnosa: cd ${APP_DIR} && npm run doctor"
+  warn "  Penyebab umum: GitHub diblokir (binary yt-dlp tidak ada) atau YouTube minta cookies."
 fi
 
 printf '\n\033[1;32m[setup] Selesai!\033[0m\n'
